@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Flag, SkipForward, RotateCcw, Trophy, Skull } from 'lucide-react';
+import { Play, Flag, SkipForward, RotateCcw, Trophy, Skull, ScrollText, Brain } from 'lucide-react';
 import { DiceArea } from '../components/Dice/DiceArea';
 import { CabinArea } from '../components/Cabin/CabinArea';
 import { ShipStatus } from '../components/Ship/ShipStatus';
 import { EnemyIntent } from '../components/Ship/EnemyIntent';
 import { BattleLog } from '../components/BattleLog/BattleLog';
+import { StaffOfficerPanel } from '../components/BattleLog/StaffOfficerPanel';
 import { FloatingText } from '../components/BattleLog/FloatingText';
 import { Modal } from '../components/UI/Modal';
 import { useGameStore } from '../store/useGameStore';
@@ -26,6 +27,7 @@ export const BattlePage: React.FC = () => {
   const { dice } = useDiceStore();
   const { rewardPoints, addRewardPoints } = useShipStore();
   const [showResultModal, setShowResultModal] = useState(false);
+  const [logTab, setLogTab] = useState<'log' | 'staff'>('log');
 
   useEffect(() => {
     if (battleState && battleState.result !== 'ongoing') {
@@ -219,7 +221,35 @@ export const BattlePage: React.FC = () => {
       </div>
 
       <div className="mt-4">
-        <BattleLog logs={battleState.logs} />
+        <div className="flex gap-2 mb-3">
+          <button
+            onClick={() => setLogTab('log')}
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all
+              ${logTab === 'log'
+                ? 'bg-neon-blue text-space-900'
+                : 'bg-space-700 text-gray-400 hover:bg-space-600'}
+            `}
+          >
+            <ScrollText className="w-4 h-4" />
+            战斗日志
+          </button>
+          <button
+            onClick={() => setLogTab('staff')}
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all
+              ${logTab === 'staff'
+                ? 'bg-neon-purple text-space-900'
+                : 'bg-space-700 text-gray-400 hover:bg-space-600'}
+            `}
+          >
+            <Brain className="w-4 h-4" />
+            舰载参谋
+          </button>
+        </div>
+        
+        {logTab === 'log' && <BattleLog logs={battleState.logs} />}
+        {logTab === 'staff' && <StaffOfficerPanel />}
       </div>
 
       <Modal

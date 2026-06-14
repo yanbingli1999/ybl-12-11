@@ -153,6 +153,7 @@ export interface BattleRecord {
   enemyHpRemaining: number;
   replayData: ReplayData;
   rewardEarned: number;
+  staffReasoning: StaffReasoningTrace[];
 }
 
 export interface GameStats {
@@ -195,4 +196,108 @@ export interface DamageResult {
   shieldAbsorbed: number;
   isCrit: boolean;
   isMiss: boolean;
+}
+
+export type StaffStrategyType = 'balanced' | 'aggressive' | 'defensive' | 'conservative';
+
+export interface EnemyIntentPattern {
+  type: EnemyIntentType;
+  frequency: number;
+  avgValue: number;
+  description: string;
+}
+
+export interface DiceWasteAnalysis {
+  totalWasted: number;
+  wastedDice: string[];
+  reason: string;
+  suggestion: string;
+}
+
+export interface OverheatAnalysis {
+  cabinType: CabinType;
+  currentPoints: number;
+  threshold: number;
+  riskLevel: 'low' | 'medium' | 'high';
+  benefitIfOverheat: string;
+  recommendation: string;
+}
+
+export interface EnergyAnalysis {
+  currentEnergy: number;
+  energyRegen: number;
+  projectedNextTurn: number;
+  rhythm: 'stable' | 'tight' | 'overflow';
+  recommendation: string;
+}
+
+export interface CabinRiskAnalysis {
+  cabinType: CabinType;
+  damageRisk: number;
+  currentHp: number;
+  maxHp: number;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+}
+
+export interface StaffAnalysis {
+  turn: number;
+  enemyPatterns: EnemyIntentPattern[];
+  predictedNextIntent: EnemyIntent;
+  diceWaste: DiceWasteAnalysis;
+  overheatRisks: OverheatAnalysis[];
+  energyAnalysis: EnergyAnalysis;
+  cabinRisks: CabinRiskAnalysis[];
+  overallAssessment: string;
+  confidence: number;
+}
+
+export interface AllocationSuggestion {
+  strategy: StaffStrategyType;
+  strategyName: string;
+  description: string;
+  allocations: { cabinType: CabinType; diceIds: string[] }[];
+  expectedOutcomes: {
+    damage?: number;
+    shield?: number;
+    heal?: number;
+    evasion?: number;
+    scan?: number;
+  };
+  risks: string[];
+  benefits: string[];
+  confidence: number;
+}
+
+export interface StaffReasoningTrace {
+  id: string;
+  turn: number;
+  timestamp: number;
+  analysis: StaffAnalysis;
+  suggestions: AllocationSuggestion[];
+  selectedStrategy: StaffStrategyType | null;
+  playerAction: string;
+  outcomeNotes: string;
+}
+
+export interface StaffState {
+  isActive: boolean;
+  currentAnalysis: StaffAnalysis | null;
+  suggestions: AllocationSuggestion[];
+  selectedSuggestion: StaffStrategyType | null;
+  reasoningHistory: StaffReasoningTrace[];
+  lastUpdateTurn: number;
+}
+
+export interface TurnSnapshot {
+  turn: number;
+  playerHp: number;
+  playerShield: number;
+  playerEnergy: number;
+  playerCabins: Cabin[];
+  enemyHp: number;
+  enemyShield: number;
+  enemyIntent: EnemyIntent;
+  diceAllocation: { cabinType: CabinType | null; value: number }[];
+  damageDealt: number;
+  damageTaken: number;
 }

@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import type { 
   BattleState, BattleRecord, BattleLogEntry, 
-  Enemy, ReplayData, ReplayAction
+  Enemy, ReplayData, ReplayAction,
+  StaffState, StaffAnalysis, AllocationSuggestion,
+  StaffStrategyType, StaffReasoningTrace,
 } from '../types';
 import { getRandomEnemy, generateEnemyIntent } from '../data/enemies';
 import { useShipStore } from './useShipStore';
@@ -15,6 +17,12 @@ import {
 } from '../utils/battle';
 import { addBattleRecord, loadBattleHistory, updateStats } from '../utils/storage';
 import { unassignAllDice } from '../utils/dice';
+import {
+  generateStaffAnalysis,
+  generateAllocationSuggestions,
+  applySuggestion,
+  createReasoningTrace,
+} from '../utils/staffOfficer';
 
 interface GameState {
   battleState: BattleState | null;
@@ -24,6 +32,7 @@ interface GameState {
   replayIndex: number;
   isReplaying: boolean;
   replaySpeed: number;
+  staffState: StaffState;
   
   startBattle: () => void;
   confirmTurn: () => void;
@@ -38,6 +47,11 @@ interface GameState {
   setReplaySpeed: (speed: number) => void;
   setDifficulty: (difficulty: number) => void;
   resetBattle: () => void;
+  
+  updateStaffAnalysis: () => void;
+  applyStaffSuggestion: (strategy: StaffStrategyType) => void;
+  toggleStaffActive: () => void;
+  getStaffReasoningHistory: () => StaffReasoningTrace[];
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -48,6 +62,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   replayIndex: -1,
   isReplaying: false,
   replaySpeed: 1,
+  staffState: {
+    isActive: true,
+    currentAnalysis: null,
+    suggestions: [],
+    selectedSuggestion: null,
+    reasoningHistory: [],
+    lastUpdateTurn: 0,
+  },
   
   startBattle: () => {
     const { currentDifficulty } = get();
@@ -92,6 +114,14 @@ export const useGameStore = create<GameState>((set, get) => ({
       replayData,
       replayIndex: -1,
       isReplaying: false,
+      staffState: {
+        isActive: get().staffState.isActive,
+        currentAnalysis: null,
+        suggestions: [],
+        selectedSuggestion: null,
+        reasoningHistory: [],
+        lastUpdateTurn: 0,
+      },
     });
     
     useDiceStore.getState().resetDice();
@@ -285,9 +315,36 @@ export const useGameStore = create<GameState>((set, get) => ({
       actions: [...replayData.actions, replayAction],
     } : null;
     
+    const { staffState } = get();
+    let newStaffState = staffState;
+    
+    if (staffState.isActive && staffState.currentAnalysis) {
+      const damageDealt = playerResult.totalDamageDealt;
+      const damageTaken = enemyResult.shieldResult.damage;
+      const outcomeNotes = `造成${damageDealt}伤害，承受${damageTaken}伤害`;
+      
+      const trace = createReasoningTrace(
+        staffState.currentAnalysis,
+        staffState.suggestions,
+        staffState.selectedSuggestion,
+        '确认回合',
+        outcomeNotes
+      );
+      
+      newStaffState = {
+        ...staffState,
+        reasoningHistory: [...staffState.reasoningHistory, trace],
+        currentAnalysis: null,
+        suggestions: [],
+        selectedSuggestion: null,
+        lastUpdateTurn: 0,
+      };
+    }
+    
     set({ 
       battleState: newState,
       replayData: newReplayData,
+      staffState: newStaffState,
     });
     
     const newStats = {
@@ -337,6 +394,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       enemyHpRemaining: battleState.enemy.hp,
       replayData: replayData || { initialState: newState, actions: [] },
       rewardEarned: reward,
+      staffReasoning: get().staffState.reasoningHistory,
     };
     
     addBattleRecord(newRecord);
@@ -453,7 +511,85 @@ export const useGameStore = create<GameState>((set, get) => ({
       replayData: null,
       replayIndex: -1,
       isReplaying: false,
+      staffState: {
+        isActive: get().staffState.isActive,
+        currentAnalysis: null,
+        suggestions: [],
+        selectedSuggestion: null,
+        reasoningHistory: [],
+        lastUpdateTurn: 0,
+      },
     });
     useDiceStore.getState().resetDice();
+  },
+  
+  updateStaffAnalysis: () => {
+    const { battleState, staffState, isReplaying } = get();
+    if (!battleState || !staffState.isActive || isReplaying) return;
+    if (battleState.phase !== 'player') return;
+    
+    const dice = useDiceStore.getState().dice;
+    const config = useConfigStore.getState().config;
+    
+    if (staffState.lastUpdateTurn === battleState.turn && staffState.currentAnalysis) {
+      return;
+    }
+    
+    const analysis = generateStaffAnalysis(
+      battleState.player,
+      battleState.enemy,
+      dice,
+      config,
+      battleState.logs,
+      battleState.turn
+    );
+    
+    const suggestions = generateAllocationSuggestions(
+      dice,
+      battleState.player,
+      battleState.enemy,
+      config,
+      analysis
+    );
+    
+    set({
+      staffState: {
+        ...staffState,
+        currentAnalysis: analysis,
+        suggestions,
+        lastUpdateTurn: battleState.turn,
+      },
+    });
+  },
+  
+  applyStaffSuggestion: (strategy) => {
+    const { staffState } = get();
+    const suggestion = staffState.suggestions.find(s => s.strategy === strategy);
+    if (!suggestion) return;
+    
+    const diceStore = useDiceStore.getState();
+    const newDice = applySuggestion(diceStore.dice, suggestion);
+    diceStore.setDice(newDice);
+    
+    set({
+      staffState: {
+        ...staffState,
+        selectedSuggestion: strategy,
+      },
+    });
+  },
+  
+  toggleStaffActive: () => {
+    const { staffState } = get();
+    set({
+      staffState: {
+        ...staffState,
+        isActive: !staffState.isActive,
+      },
+    });
+  },
+  
+  getStaffReasoningHistory: () => {
+    return get().staffState.reasoningHistory;
   },
 }));
