@@ -51,11 +51,16 @@ export function saveSaveData(data: GameSaveData): void {
 function validateSaveData(data: GameSaveData): GameSaveData {
   const defaults = createDefaultSaveData();
   
+  const validatedHistory = (data.battleHistory || []).map(record => ({
+    ...record,
+    staffReasoning: Array.isArray((record as any).staffReasoning) ? (record as any).staffReasoning : [],
+  }));
+  
   return {
     ship: { ...defaults.ship, ...data.ship, cabins: data.ship.cabins || defaults.ship.cabins },
     upgrades: data.upgrades && data.upgrades.length > 0 ? data.upgrades : defaults.upgrades,
     config: { ...defaults.config, ...data.config },
-    battleHistory: data.battleHistory || [],
+    battleHistory: validatedHistory,
     stats: { ...defaults.stats, ...data.stats },
     rewardPoints: typeof data.rewardPoints === 'number' ? data.rewardPoints : 0,
   };

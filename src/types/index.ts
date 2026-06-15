@@ -286,6 +286,7 @@ export interface StaffState {
   selectedSuggestion: StaffStrategyType | null;
   reasoningHistory: StaffReasoningTrace[];
   lastUpdateTurn: number;
+  lastDiceSignature: string;
 }
 
 export interface TurnSnapshot {

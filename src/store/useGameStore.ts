@@ -4,6 +4,7 @@ import type {
   Enemy, ReplayData, ReplayAction,
   StaffState, StaffAnalysis, AllocationSuggestion,
   StaffStrategyType, StaffReasoningTrace,
+  Die,
 } from '../types';
 import { getRandomEnemy, generateEnemyIntent } from '../data/enemies';
 import { useShipStore } from './useShipStore';
@@ -23,6 +24,13 @@ import {
   applySuggestion,
   createReasoningTrace,
 } from '../utils/staffOfficer';
+
+function getDiceSignature(dice: Die[]): string {
+  return dice
+    .map(d => `${d.id}:${d.value}:${d.assignedTo || 'null'}`)
+    .sort()
+    .join('|');
+}
 
 interface GameState {
   battleState: BattleState | null;
@@ -69,6 +77,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     selectedSuggestion: null,
     reasoningHistory: [],
     lastUpdateTurn: 0,
+    lastDiceSignature: '',
   },
   
   startBattle: () => {
@@ -121,6 +130,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         selectedSuggestion: null,
         reasoningHistory: [],
         lastUpdateTurn: 0,
+        lastDiceSignature: '',
       },
     });
     
@@ -158,9 +168,39 @@ export const useGameStore = create<GameState>((set, get) => ({
       logs: [...battleState.logs, ...playerResult.logs.map(l => ({ ...l, turn: battleState.turn }))],
     };
     
-    const result = checkBattleEnd(newState.player, newState.enemy);
-    if (result !== 'ongoing') {
-      get().endBattle(result);
+    const { staffState } = get();
+    let pendingDamageTaken = 0;
+    const buildAndSaveReasoning = (damageTaken: number, actionNote: string) => {
+      const current = get().staffState;
+      if (!current.isActive || !current.currentAnalysis) return current;
+      
+      const damageDealt = playerResult.totalDamageDealt;
+      const outcomeNotes = `造成${damageDealt}伤害，承受${damageTaken}伤害`;
+      
+      const trace = createReasoningTrace(
+        current.currentAnalysis,
+        current.suggestions,
+        current.selectedSuggestion,
+        actionNote,
+        outcomeNotes
+      );
+      
+      return {
+        ...current,
+        reasoningHistory: [...current.reasoningHistory, trace],
+        currentAnalysis: null,
+        suggestions: [],
+        selectedSuggestion: null,
+        lastUpdateTurn: 0,
+        lastDiceSignature: '',
+      };
+    };
+    
+    const resultAfterPlayer = checkBattleEnd(newState.player, newState.enemy);
+    if (resultAfterPlayer !== 'ongoing') {
+      const updatedStaff = buildAndSaveReasoning(0, '确认回合');
+      set({ staffState: updatedStaff });
+      get().endBattle(resultAfterPlayer);
       return;
     }
     
@@ -271,6 +311,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     
     const finalResult = checkBattleEnd(newState.player, newState.enemy);
     if (finalResult !== 'ongoing') {
+      const updatedStaff = buildAndSaveReasoning(enemyResult.shieldResult.damage, '确认回合');
+      set({ staffState: updatedStaff });
       get().endBattle(finalResult);
       return;
     }
@@ -315,31 +357,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       actions: [...replayData.actions, replayAction],
     } : null;
     
-    const { staffState } = get();
-    let newStaffState = staffState;
-    
-    if (staffState.isActive && staffState.currentAnalysis) {
-      const damageDealt = playerResult.totalDamageDealt;
-      const damageTaken = enemyResult.shieldResult.damage;
-      const outcomeNotes = `造成${damageDealt}伤害，承受${damageTaken}伤害`;
-      
-      const trace = createReasoningTrace(
-        staffState.currentAnalysis,
-        staffState.suggestions,
-        staffState.selectedSuggestion,
-        '确认回合',
-        outcomeNotes
-      );
-      
-      newStaffState = {
-        ...staffState,
-        reasoningHistory: [...staffState.reasoningHistory, trace],
-        currentAnalysis: null,
-        suggestions: [],
-        selectedSuggestion: null,
-        lastUpdateTurn: 0,
-      };
-    }
+    const newStaffState = buildAndSaveReasoning(enemyResult.shieldResult.damage, '确认回合');
     
     set({ 
       battleState: newState,
@@ -360,12 +378,47 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   
   fleeBattle: () => {
+    const { staffState, battleState } = get();
+    if (battleState && staffState.isActive && staffState.currentAnalysis) {
+      const trace = createReasoningTrace(
+        staffState.currentAnalysis,
+        staffState.suggestions,
+        staffState.selectedSuggestion,
+        '逃跑',
+        '玩家选择撤退'
+      );
+      set({
+        staffState: {
+          ...staffState,
+          reasoningHistory: [...staffState.reasoningHistory, trace],
+          currentAnalysis: null,
+          suggestions: [],
+          selectedSuggestion: null,
+          lastUpdateTurn: 0,
+          lastDiceSignature: '',
+        },
+      });
+    }
     get().endBattle('fled');
   },
   
   endBattle: (result) => {
-    const { battleState, replayData } = get();
+    const { battleState, replayData, staffState } = get();
     if (!battleState) return;
+    
+    let finalReasoningHistory = staffState.reasoningHistory;
+    if (staffState.isActive && staffState.currentAnalysis && staffState.reasoningHistory.every(
+      t => t.turn !== battleState.turn
+    )) {
+      const trace = createReasoningTrace(
+        staffState.currentAnalysis,
+        staffState.suggestions,
+        staffState.selectedSuggestion,
+        result === 'victory' ? '战斗胜利' : result === 'defeat' ? '战斗失败' : '战斗结束',
+        `战斗结束，结果: ${result === 'victory' ? '胜利' : result === 'defeat' ? '失败' : '撤退'}`
+      );
+      finalReasoningHistory = [...staffState.reasoningHistory, trace];
+    }
     
     const shipStore = useShipStore.getState();
     const config = useConfigStore.getState().config;
@@ -394,7 +447,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       enemyHpRemaining: battleState.enemy.hp,
       replayData: replayData || { initialState: newState, actions: [] },
       rewardEarned: reward,
-      staffReasoning: get().staffState.reasoningHistory,
+      staffReasoning: finalReasoningHistory,
     };
     
     addBattleRecord(newRecord);
@@ -518,6 +571,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         selectedSuggestion: null,
         reasoningHistory: [],
         lastUpdateTurn: 0,
+        lastDiceSignature: '',
       },
     });
     useDiceStore.getState().resetDice();
@@ -530,8 +584,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     
     const dice = useDiceStore.getState().dice;
     const config = useConfigStore.getState().config;
+    const currentSignature = getDiceSignature(dice);
     
-    if (staffState.lastUpdateTurn === battleState.turn && staffState.currentAnalysis) {
+    if (
+      staffState.lastUpdateTurn === battleState.turn && 
+      staffState.lastDiceSignature === currentSignature &&
+      staffState.currentAnalysis
+    ) {
       return;
     }
     
@@ -558,6 +617,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         currentAnalysis: analysis,
         suggestions,
         lastUpdateTurn: battleState.turn,
+        lastDiceSignature: currentSignature,
+        selectedSuggestion: null,
       },
     });
   },

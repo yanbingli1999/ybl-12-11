@@ -223,7 +223,7 @@ export const HistoryPage: React.FC = () => {
           </div>
         </div>
 
-        {viewingReasoning.staffReasoning.length === 0 ? (
+        {(viewingReasoning.staffReasoning || []).length === 0 ? (
           <div className="glass-panel p-8 rounded-xl text-center">
             <div className="text-4xl mb-4">📝</div>
             <p className="text-gray-400">本场战斗无参谋推理记录</p>
@@ -233,7 +233,7 @@ export const HistoryPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            {viewingReasoning.staffReasoning.map((trace) => (
+            {(viewingReasoning.staffReasoning || []).map((trace) => (
               <div
                 key={trace.id}
                 className="glass-panel border border-space-600 rounded-xl overflow-hidden"
